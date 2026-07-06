@@ -2,8 +2,11 @@
 #include "hypr-ipc.h"
 #include "mock-server.h"
 #include "cursor-tracker.h"
+#include "log.h"
 
 #include <chrono>
+#include <cstdlib>
+#include <vector>
 
 using namespace rec;
 
@@ -76,4 +79,52 @@ TEST(shared_drain_moves_and_clears_queues)
     auto s2 = shared.drain();
     CHECK(s2.clicks.empty());
     CHECK(s2.command_lines.empty());
+}
+
+TEST(cursor_tracker_logs_once_when_hyprland_env_missing)
+{
+    // Save current env state
+    const char *orig_sig = std::getenv("HYPRLAND_INSTANCE_SIGNATURE");
+    std::string saved_sig;
+    bool was_set = false;
+    if (orig_sig) {
+        saved_sig = orig_sig;
+        was_set = true;
+    }
+
+    // Unset the env var to simulate missing Hyprland
+    unsetenv("HYPRLAND_INSTANCE_SIGNATURE");
+
+    // Capture logs into a vector
+    std::vector<std::string> captured_logs;
+    auto original_sink = log_sink();
+    log_sink() = [&captured_logs](const std::string &msg) {
+        captured_logs.push_back(msg);
+    };
+
+    try {
+        SharedInputs shared;
+        {
+            CursorTracker tracker(shared); // default socket path (empty)
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            auto s = shared.drain();
+            CHECK(!s.cursor_valid); // degraded to invalid
+        }
+
+        // Should have exactly 1 log line (constructor's message)
+        CHECK(captured_logs.size() == 1);
+        CHECK(captured_logs[0].find("HYPRLAND_INSTANCE_SIGNATURE 缺失") != std::string::npos);
+
+    } catch (...) {
+        // Restore env and sink in any case
+        log_sink() = original_sink;
+        if (was_set)
+            setenv("HYPRLAND_INSTANCE_SIGNATURE", saved_sig.c_str(), 1);
+        throw;
+    }
+
+    // Restore env and sink
+    log_sink() = original_sink;
+    if (was_set)
+        setenv("HYPRLAND_INSTANCE_SIGNATURE", saved_sig.c_str(), 1);
 }

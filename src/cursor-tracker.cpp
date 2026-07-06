@@ -56,7 +56,8 @@ void CursorTracker::loop()
         } else {
             shared_.set_cursor({}, false);
             local_ms.clear();
-            if (!warned) {
+            // 只在已尝试查询(sock_path非空)时记日志;若env缺失则静默退避
+            if (!warned && !sock_path_.empty()) {
                 log("cursor-tracker: Hyprland IPC 查询失败(" + err + "),2s 后重试");
                 warned = true;
             }
