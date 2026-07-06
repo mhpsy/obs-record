@@ -21,6 +21,12 @@ void EffectsState::on_cursor(Vec2 px)
     }
 }
 
+void EffectsState::on_click(int button)
+{
+    if (cfg.ripples_enabled)
+        ripples_.push_back({cursor_px_, 0, button});
+}
+
 void EffectsState::apply(const Command &c)
 {
     switch (c.type) {
@@ -41,6 +47,44 @@ void EffectsState::apply(const Command &c)
         } else {
             zoom_target_ = 1.0;
         }
+        break;
+    case CmdType::HighlightToggle:
+        highlight_on = !highlight_on;
+        break;
+    case CmdType::TrailToggle:
+        trail_on = !trail_on;
+        if (!trail_on)
+            trail_.clear();
+        break;
+    case CmdType::SpotlightToggle:
+        spotlight_on = !spotlight_on;
+        break;
+    case CmdType::PinAdd:
+        pins_.push_back({Pin::Badge, next_badge_++, cursor_px_, {}});
+        break;
+    case CmdType::PinBox:
+        if (!box_pending_) {
+            box_pending_ = true;
+            box_corner_ = cursor_px_;
+            box_age_ = 0;
+        } else {
+            pins_.push_back({Pin::Box, 0, {}, rect_from_corners(box_corner_, cursor_px_)});
+            box_pending_ = false;
+        }
+        break;
+    case CmdType::PinUndo:
+        if (box_pending_) {
+            box_pending_ = false;
+        } else if (!pins_.empty()) {
+            if (pins_.back().kind == Pin::Badge)
+                --next_badge_;
+            pins_.pop_back();
+        }
+        break;
+    case CmdType::PinClear:
+        pins_.clear();
+        box_pending_ = false;
+        next_badge_ = 1;
         break;
     default:
         break;
@@ -68,6 +112,28 @@ void EffectsState::tick(double dt, double src_w, double src_h)
     view_center_.y = approach(view_center_.y, desired.y, cfg.follow_speed, dt);
     view_center_.x = std::clamp(view_center_.x, vw / 2.0, src_w - vw / 2.0);
     view_center_.y = std::clamp(view_center_.y, vh / 2.0, src_h - vh / 2.0);
+
+    // 波纹老化
+    for (auto &r : ripples_)
+        r.age += dt;
+    std::erase_if(ripples_, [&](const Ripple &r) { return r.age > cfg.ripple_lifetime; });
+
+    // 轨迹采样(移动超过 2px 才记点)与老化
+    if (trail_on && cursor_valid) {
+        if (trail_.empty() ||
+            std::hypot(trail_.back().pos.x - cursor_px_.x, trail_.back().pos.y - cursor_px_.y) > 2.0)
+            trail_.push_back({cursor_px_, 0});
+    }
+    for (auto &t : trail_)
+        t.age += dt;
+    std::erase_if(trail_, [&](const TrailPoint &t) { return t.age > cfg.trail_lifetime; });
+
+    // pin box 超时取消
+    if (box_pending_) {
+        box_age_ += dt;
+        if (box_age_ > cfg.pinbox_timeout)
+            box_pending_ = false;
+    }
 }
 
 Rect EffectsState::viewport(double src_w, double src_h) const

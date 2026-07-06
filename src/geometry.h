@@ -1,4 +1,6 @@
 #pragma once
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -45,6 +47,12 @@ inline Vec2 scale_to_capture(Vec2 px, const MonitorInfo &m, double cap_w, double
     if (m.width <= 0 || m.height <= 0)
         return px;
     return {px.x * cap_w / m.width, px.y * cap_h / m.height};
+}
+
+inline Rect rect_from_corners(Vec2 a, Vec2 b)
+{
+    double x0 = std::min(a.x, b.x), y0 = std::min(a.y, b.y);
+    return {x0, y0, std::fabs(a.x - b.x), std::fabs(a.y - b.y)};
 }
 
 } // namespace rec

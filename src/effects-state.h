@@ -6,6 +6,24 @@
 
 namespace rec {
 
+struct Ripple {
+    Vec2 pos;
+    double age = 0;
+    int button = 0;
+};
+
+struct TrailPoint {
+    Vec2 pos;
+    double age = 0;
+};
+
+struct Pin {
+    enum Kind { Badge, Box } kind = Badge;
+    int number = 0; // Badge 用
+    Vec2 pos;       // Badge 用
+    Rect rect;      // Box 用
+};
+
 struct EffectsConfig {
     std::vector<double> zoom_presets{1.5, 2.0, 3.0};
     double zoom_anim_speed = 12.0;    // 指数逼近速率 (1/s),约 300ms 收敛
@@ -28,9 +46,14 @@ public:
     EffectsConfig cfg;
     bool cursor_valid = false;
 
+    bool highlight_on = true;
+    bool trail_on = false;
+    bool spotlight_on = false;
+
     void on_cursor(Vec2 px);
     void apply(const Command &c);
     void tick(double dt, double src_w, double src_h);
+    void on_click(int button);
 
     double zoom() const { return zoom_current_; }
     double zoom_target() const { return zoom_target_; }
@@ -38,12 +61,26 @@ public:
     Vec2 cursor() const { return cursor_px_; }
     Vec2 smooth_cursor() const { return smooth_cursor_; }
 
+    const std::vector<Ripple> &ripples() const { return ripples_; }
+    const std::vector<TrailPoint> &trail() const { return trail_; }
+    const std::vector<Pin> &pins() const { return pins_; }
+    bool pinbox_pending() const { return box_pending_; }
+    Rect pinbox_preview() const { return rect_from_corners(box_corner_, cursor_px_); }
+
 private:
     double zoom_current_ = 1.0, zoom_target_ = 1.0, zoom_memory_ = 2.0;
     int preset_index_ = -1;
     Vec2 view_center_;
     bool view_center_init_ = false;
     Vec2 cursor_px_, smooth_cursor_;
+
+    std::vector<Ripple> ripples_;
+    std::vector<TrailPoint> trail_;
+    std::vector<Pin> pins_;
+    int next_badge_ = 1;
+    bool box_pending_ = false;
+    Vec2 box_corner_;
+    double box_age_ = 0;
 };
 
 } // namespace rec
