@@ -1,6 +1,9 @@
 #include "test-framework.h"
 #include "hypr-ipc.h"
 #include "mock-server.h"
+#include "cursor-tracker.h"
+
+#include <chrono>
 
 using namespace rec;
 
@@ -24,4 +27,53 @@ TEST(hypr_query_fails_on_missing_socket)
     std::string reply, err;
     CHECK(!hypr_query("does-not-exist.sock", "cursorpos", &reply, &err));
     CHECK(!err.empty());
+}
+
+TEST(cursor_tracker_populates_shared_state)
+{
+    MockIpcServer srv("mock-hypr.sock", [](const std::string &req) -> std::string {
+        if (req == "cursorpos")
+            return "100, 200";
+        if (req == "j/monitors")
+            return R"([{"name":"HDMI-A-2","x":0,"y":0,"width":3840,"height":2160,"scale":1.25}])";
+        return "unknown request";
+    });
+    SharedInputs shared;
+    {
+        CursorTracker tracker(shared, "mock-hypr.sock");
+        bool ok = false;
+        for (int i = 0; i < 100 && !ok; i++) { // 最多等 2s
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            auto s = shared.drain();
+            ok = s.cursor_valid && !s.monitors.empty();
+            if (ok) {
+                CHECK_NEAR(s.cursor_logical.x, 100, 1e-9);
+                CHECK_NEAR(s.cursor_logical.y, 200, 1e-9);
+                CHECK(s.monitors[0].name == "HDMI-A-2");
+            }
+        }
+        CHECK(ok);
+    } // 析构必须干净退出、不卡住
+}
+
+TEST(cursor_tracker_degrades_when_socket_dies)
+{
+    SharedInputs shared;
+    CursorTracker tracker(shared, "never-existed.sock");
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    auto s = shared.drain();
+    CHECK(!s.cursor_valid); // 降级为无效,而不是崩溃
+}
+
+TEST(shared_drain_moves_and_clears_queues)
+{
+    SharedInputs shared;
+    shared.push_click(0);
+    shared.push_command("zoom toggle");
+    auto s = shared.drain();
+    CHECK(s.clicks.size() == 1);
+    CHECK(s.command_lines.size() == 1);
+    auto s2 = shared.drain();
+    CHECK(s2.clicks.empty());
+    CHECK(s2.command_lines.empty());
 }

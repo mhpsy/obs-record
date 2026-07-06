@@ -16,7 +16,8 @@ find_package(Threads REQUIRED)
 add_library(rec-core STATIC
     src/hypr-ipc.cpp
     src/effects-state.cpp
-    src/commands.cpp)
+    src/commands.cpp
+    src/cursor-tracker.cpp)
 target_include_directories(rec-core PUBLIC src)
 target_link_libraries(rec-core PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
 
