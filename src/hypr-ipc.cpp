@@ -76,25 +76,37 @@ bool parse_cursorpos(const std::string &reply, Vec2 *out)
 
 bool parse_monitors_json(const std::string &json, std::vector<MonitorInfo> *out)
 {
+    out->clear();
+
     auto j = nlohmann::json::parse(json, nullptr, false);
     if (j.is_discarded() || !j.is_array())
         return false;
-    out->clear();
-    for (const auto &m : j) {
-        if (!m.is_object())
-            return false;
-        MonitorInfo mi;
-        mi.name = m.value("name", "");
-        mi.x = m.value("x", 0.0);
-        mi.y = m.value("y", 0.0);
-        mi.width = m.value("width", 0);
-        mi.height = m.value("height", 0);
-        mi.scale = m.value("scale", 1.0);
-        if (mi.width <= 0 || mi.height <= 0 || mi.scale <= 0)
-            return false;
-        out->push_back(std::move(mi));
+
+    std::vector<MonitorInfo> temp;
+    try {
+        for (const auto &m : j) {
+            if (!m.is_object())
+                return false;
+            MonitorInfo mi;
+            mi.name = m.value("name", "");
+            mi.x = m.value("x", 0.0);
+            mi.y = m.value("y", 0.0);
+            mi.width = m.value("width", 0);
+            mi.height = m.value("height", 0);
+            mi.scale = m.value("scale", 1.0);
+            if (mi.width <= 0 || mi.height <= 0 || mi.scale <= 0)
+                return false;
+            temp.push_back(std::move(mi));
+        }
+    } catch (const nlohmann::json::exception &) {
+        return false;
     }
-    return !out->empty();
+
+    if (temp.empty())
+        return false;
+
+    out->swap(temp);
+    return true;
 }
 
 } // namespace rec

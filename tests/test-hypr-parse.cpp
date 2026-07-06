@@ -42,4 +42,31 @@ TEST(parse_monitors_rejects_bad_json)
     std::vector<MonitorInfo> ms;
     CHECK(!parse_monitors_json("not json", &ms));
     CHECK(!parse_monitors_json("{}", &ms)); // 不是数组
+
+    // non-positive width rejected
+    CHECK(!parse_monitors_json(R"([{"name":"X","x":0,"y":0,"width":0,"height":2160,"scale":1.25}])", &ms));
+    CHECK(ms.empty());
+
+    // non-positive height rejected
+    CHECK(!parse_monitors_json(R"([{"name":"X","x":0,"y":0,"width":3840,"height":0,"scale":1.25}])", &ms));
+    CHECK(ms.empty());
+
+    // non-positive scale rejected
+    CHECK(!parse_monitors_json(R"([{"name":"X","x":0,"y":0,"width":3840,"height":2160,"scale":0}])", &ms));
+    CHECK(ms.empty());
+
+    // wrong field type doesn't crash and is rejected
+    CHECK(!parse_monitors_json(R"([{"name":"X","x":0,"y":0,"width":"3840","height":2160,"scale":1.25}])", &ms));
+    CHECK(ms.empty());
+
+    // partial-state check: valid first + invalid second → output cleared
+    MonitorInfo dummy{"DUMMY", 0, 0, 1920, 1080, 1.0};
+    ms.push_back(dummy);
+    CHECK(!ms.empty());
+    const char *json = R"([
+        {"name":"X","x":0,"y":0,"width":3840,"height":2160,"scale":1.25},
+        {"name":"Y","x":0,"y":0,"width":0,"height":2160,"scale":1.25}
+    ])";
+    CHECK(!parse_monitors_json(json, &ms));
+    CHECK(ms.empty());  // Should be cleared after failed parse
 }
