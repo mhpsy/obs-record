@@ -33,4 +33,22 @@ Command parse_command(const std::string &line)
     return {};
 }
 
+std::vector<double> parse_presets(const std::string &csv)
+{
+    std::vector<double> out;
+    std::istringstream ss(csv);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        try {
+            double v = std::stod(item);
+            if (v > 1.0 && v <= 10.0)
+                out.push_back(v);
+        } catch (...) {
+        }
+    }
+    if (out.empty())
+        out = {1.5, 2.0, 3.0};
+    return out;
+}
+
 } // namespace rec

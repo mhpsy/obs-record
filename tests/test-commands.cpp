@@ -37,3 +37,16 @@ TEST(parse_rejects_garbage)
     CHECK(parse_command("zoom set abc").type == CmdType::Invalid);
     CHECK(parse_command("frobnicate now").type == CmdType::Invalid);
 }
+
+TEST(parse_presets_happy_and_fallback)
+{
+    auto v = parse_presets("1.5, 2.0, 3.0");
+    CHECK(v.size() == 3);
+    CHECK_NEAR(v[1], 2.0, 1e-9);
+    auto d = parse_presets("");
+    CHECK(d.size() == 3); // 回退默认
+    CHECK_NEAR(d[0], 1.5, 1e-9);
+    auto f = parse_presets("abc, 0.5, 2.5"); // 非法与 <=1 被丢弃
+    CHECK(f.size() == 1);
+    CHECK_NEAR(f[0], 2.5, 1e-9);
+}

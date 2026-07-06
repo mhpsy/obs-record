@@ -2,6 +2,7 @@
 #include "commands.h"
 #include "geometry.h"
 
+#include <cstdint>
 #include <vector>
 
 namespace rec {
@@ -39,6 +40,14 @@ struct EffectsConfig {
     double spotlight_feather = 60.0;
     double spotlight_dim = 0.6;
     double pinbox_timeout = 10.0;
+
+    // 颜色格式 0xAABBGGRR(与 OBS 颜色属性、vec4_from_rgba 一致)
+    uint32_t highlight_color = 0x6600D4FF;    // 半透明黄
+    uint32_t ripple_left_color = 0xCC00D4FF;  // 黄
+    uint32_t ripple_right_color = 0xCCFF8800; // 蓝
+    uint32_t badge_color = 0xFF3538F5;        // 红
+    uint32_t box_color = 0x4000D4FF;          // 半透明黄
+    double badge_radius = 22.0;               // 徽章半径(px)
 };
 
 class EffectsState {

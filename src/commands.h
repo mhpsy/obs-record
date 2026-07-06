@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 namespace rec {
 
@@ -16,5 +17,6 @@ struct Command {
 };
 
 Command parse_command(const std::string &line);
+std::vector<double> parse_presets(const std::string &csv);
 
 } // namespace rec

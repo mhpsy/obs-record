@@ -21,9 +21,15 @@ add_library(rec-core STATIC
     src/control-server.cpp)
 target_include_directories(rec-core PUBLIC src)
 target_link_libraries(rec-core PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
+# obs-record(MODULE, 需 -fPIC)静态链接本库;之前任务从未真正从 obs-record.so
+# 拉取本库符号(旧 plugin-main.cpp 未引用),故此问题此前未暴露。Task 10 的
+# filter.cpp 首次真正引用 CursorTracker/ControlServer/EffectsState 等符号,
+# 链接器才会把这些 .o 拉入 obs-record.so,若无 -fPIC 会报重定位错误。
+set_target_properties(rec-core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(obs-record MODULE
     src/plugin-main.cpp
+    src/filter.cpp
     src/input-listener.cpp)
 set_target_properties(obs-record PROPERTIES PREFIX "")
 target_link_libraries(obs-record PRIVATE OBS::libobs rec-core PkgConfig::INPUT)
