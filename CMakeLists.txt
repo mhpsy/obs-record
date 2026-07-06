@@ -17,7 +17,8 @@ add_library(rec-core STATIC
     src/hypr-ipc.cpp
     src/effects-state.cpp
     src/commands.cpp
-    src/cursor-tracker.cpp)
+    src/cursor-tracker.cpp
+    src/control-server.cpp)
 target_include_directories(rec-core PUBLIC src)
 target_link_libraries(rec-core PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
 

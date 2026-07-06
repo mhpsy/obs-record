@@ -2,11 +2,17 @@
 #include "hypr-ipc.h"
 #include "mock-server.h"
 #include "cursor-tracker.h"
+#include "control-server.h"
 #include "log.h"
 
 #include <chrono>
 #include <cstdlib>
+#include <cstdio>
 #include <vector>
+
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 using namespace rec;
 
@@ -127,4 +133,43 @@ TEST(cursor_tracker_logs_once_when_hyprland_env_missing)
     log_sink() = original_sink;
     if (was_set)
         setenv("HYPRLAND_INSTANCE_SIGNATURE", saved_sig.c_str(), 1);
+}
+
+static void send_line(const std::string &path, const std::string &data)
+{
+    int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", path.c_str());
+    ::connect(fd, (sockaddr *)&addr, sizeof(addr));
+    (void)!::write(fd, data.data(), data.size());
+    ::close(fd);
+}
+
+TEST(control_server_receives_command_lines)
+{
+    SharedInputs shared;
+    ControlServer srv(shared, "control-test.sock");
+    CHECK(srv.ok());
+    send_line("control-test.sock", "zoom toggle\npin add\n\n");
+    bool ok = false;
+    std::vector<std::string> got;
+    for (int i = 0; i < 100 && !ok; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        auto s = shared.drain();
+        for (auto &c : s.command_lines)
+            got.push_back(c);
+        ok = got.size() >= 2;
+    }
+    CHECK(ok);
+    CHECK(got[0] == "zoom toggle");
+    CHECK(got[1] == "pin add"); // 空行被丢弃
+}
+
+TEST(control_server_cleans_stale_socket)
+{
+    SharedInputs shared;
+    { ControlServer first(shared, "stale-test.sock"); CHECK(first.ok()); }
+    // 模拟异常残留:手动占一个同名 stale 文件
+    { ControlServer second(shared, "stale-test.sock"); CHECK(second.ok()); }
 }
