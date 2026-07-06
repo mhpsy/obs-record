@@ -61,6 +61,7 @@ static void draw_rect_fill(Rect r, uint32_t rgba)
     }
 }
 
+[[maybe_unused]] // Task 12 使用
 static void draw_rect_outline(Rect r, double t, uint32_t rgba)
 {
     draw_rect_fill({r.x - t, r.y - t, r.w + 2 * t, t}, rgba);
@@ -69,6 +70,7 @@ static void draw_rect_outline(Rect r, double t, uint32_t rgba)
     draw_rect_fill({r.x + r.w, r.y, t, r.h}, rgba);
 }
 
+[[maybe_unused]] // Task 12 使用
 static void draw_dashed_rect_outline(Rect r, double t, double dash, uint32_t rgba)
 {
     for (double s = 0; s < r.w; s += dash * 2) {
@@ -112,15 +114,20 @@ static void draw_effects(RenderCtx &rc, EffectsState &fx, uint32_t w, uint32_t h
 void render_frame(RenderCtx &rc, obs_source_t *source, EffectsState &fx)
 {
     obs_source_t *target = obs_filter_get_target(source);
+    obs_source_t *parent = obs_filter_get_parent(source);
     uint32_t w = target ? obs_source_get_base_width(target) : 0;
     uint32_t h = target ? obs_source_get_base_height(target) : 0;
-    if (!target || !w || !h) {
+    if (!target || !parent || !w || !h) {
         obs_source_skip_video_filter(source);
         return;
     }
 
     if (!rc.texrender)
         rc.texrender = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+    if (!rc.texrender) {
+        obs_source_skip_video_filter(source);
+        return;
+    }
     gs_texrender_reset(rc.texrender);
     if (gs_texrender_begin(rc.texrender, w, h)) {
         struct vec4 clear = {};
