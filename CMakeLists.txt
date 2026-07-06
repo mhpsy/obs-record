@@ -6,9 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_compile_options(-Wall -Wextra)
 
-find_package(libobs REQUIRED)            # /usr/lib/cmake/libobs 已确认存在
-find_package(nlohmann_json REQUIRED)
+find_package(libobs QUIET)                # /usr/lib/cmake/libobs 本机已确认存在
 find_package(PkgConfig REQUIRED)
+if(NOT TARGET OBS::libobs)
+    # 部分发行版(如 Ubuntu 的 libobs-dev)不装 CMake config,回退到 pkg-config
+    pkg_check_modules(OBSPC REQUIRED IMPORTED_TARGET GLOBAL libobs)
+    add_library(OBS::libobs ALIAS PkgConfig::OBSPC)
+endif()
+find_package(nlohmann_json REQUIRED)
 pkg_check_modules(INPUT REQUIRED IMPORTED_TARGET libinput libudev)
 find_package(Threads REQUIRED)
 

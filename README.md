@@ -2,8 +2,6 @@
 
 专为 **Hyprland** 桌面打造的 OBS 录屏增强插件,面向"讲解式录屏"场景(演示文档、讲解简历、教学演示)。
 
-> 🚧 当前处于设计/开发阶段,设计文档见 [`docs/superpowers/specs/`](docs/superpowers/specs/)。
-
 ## 为什么需要它
 
 在 Wayland 下,经典的 [obs-zoom-to-mouse](https://github.com/BlankSourceCode/obs-zoom-to-mouse) 拿不到全局鼠标坐标,无法工作。本插件利用 **Hyprland IPC** 获取光标位置,把缩放跟随带回 Wayland,并在此基础上加入一整套讲解辅助效果。
@@ -18,6 +16,30 @@
 - **聚光灯模式** —— 光标周围保持明亮,其余画面压暗,把观众注意力锁在讲解位置
 
 所有效果只出现在**录制画面**里,你自己的屏幕完全正常,不受干扰。
+
+## 构建与安装
+
+```bash
+sudo pacman -S --needed cmake ninja obs-studio libinput nlohmann-json
+git clone https://github.com/mhpsy/obs-record && cd obs-record
+cmake -B build -G Ninja && cmake --build build
+ctest --test-dir build            # 可选:跑单元测试
+cmake --install build             # 装到 ~/.config/obs-studio/plugins/
+cp scripts/obs-record-cli ~/.local/bin/ && chmod +x ~/.local/bin/obs-record-cli
+```
+
+重启 OBS,在屏幕采集源的滤镜里添加 **"Hyprland 录制增强"**,
+然后把 `scripts/hyprland-binds.conf` 的键位抄进你的 hyprland.conf。
+
+## 命令一览
+
+| 命令 | 作用 |
+|---|---|
+| `zoom toggle` / `zoom cycle` / `zoom set <倍率>` | 缩放开关 / 预设循环 / 直接指定 |
+| `highlight toggle` | 光标高亮圈 |
+| `trail toggle` | 移动轨迹 |
+| `spotlight toggle` | 聚光灯 |
+| `pin add` / `pin box` / `pin undo` / `pin clear` | 编号徽章 / 高亮框 / 撤销 / 全清 |
 
 ## 工作原理
 
