@@ -23,7 +23,8 @@ target_include_directories(rec-core PUBLIC src)
 target_link_libraries(rec-core PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
 
 add_library(obs-record MODULE
-    src/plugin-main.cpp)
+    src/plugin-main.cpp
+    src/input-listener.cpp)
 set_target_properties(obs-record PROPERTIES PREFIX "")
 target_link_libraries(obs-record PRIVATE OBS::libobs rec-core PkgConfig::INPUT)
 
@@ -47,3 +48,7 @@ rec_add_test(test-zoom)
 rec_add_test(test-effects)
 rec_add_test(test-hypr-parse)
 rec_add_test(test-sockets)
+
+add_executable(click-probe tests/click-probe.cpp src/input-listener.cpp)
+target_link_libraries(click-probe PRIVATE rec-core PkgConfig::INPUT)
+target_include_directories(click-probe PRIVATE src)
