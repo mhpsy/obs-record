@@ -116,3 +116,15 @@ TEST(viewport_at_zoom_one_is_full_frame)
     CHECK_NEAR(vp.w, 1920, 1e-6);
     CHECK_NEAR(vp.h, 1080, 1e-6);
 }
+
+TEST(degraded_zoom_centers_when_no_cursor_seen)
+{
+    EffectsState fx; // on_cursor 从未被调用,view_center_ 不应停在默认 {0,0}
+    fx.apply({CmdType::ZoomSet, 2.0});
+    run(fx, 180); // 收敛
+    Rect vp = fx.viewport(1920, 1080);
+    CHECK_NEAR(vp.x, 480, 0.5);  // (1920-960)/2
+    CHECK_NEAR(vp.y, 270, 0.5);  // (1080-540)/2
+    CHECK_NEAR(vp.w, 960, 0.5);
+    CHECK_NEAR(vp.h, 540, 0.5);
+}

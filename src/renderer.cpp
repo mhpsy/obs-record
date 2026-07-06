@@ -129,6 +129,7 @@ static void draw_spotlight(RenderCtx &rc, EffectsState &fx, uint32_t w, uint32_t
 
 static obs_source_t *badge_text(RenderCtx &rc, int number)
 {
+    // 缓存按编号复用,pin clear 后保留;上界=历史最大编号,可接受
     auto it = rc.badges.find(number);
     if (it != rc.badges.end())
         return it->second;

@@ -141,6 +141,30 @@ TEST(pin_clear_resets_everything)
     CHECK(fx.pins()[0].number == 1); // 编号重置
 }
 
+TEST(click_before_cursor_seen_is_ignored)
+{
+    EffectsState fx; // on_cursor 从未被调用,cursor_valid 仍为 false
+    fx.on_click(0);
+    CHECK(fx.ripples().empty());
+}
+
+TEST(pin_add_before_cursor_seen_is_ignored)
+{
+    EffectsState fx;
+    fx.apply({CmdType::PinAdd, 0});
+    CHECK(fx.pins().empty());
+}
+
+TEST(pin_box_first_press_before_cursor_seen_is_ignored)
+{
+    EffectsState fx;
+    fx.apply({CmdType::PinBox, 0}); // 光标无效,忽略,不应挂起
+    CHECK(!fx.pinbox_pending());
+    fx.on_cursor({50, 50});
+    fx.apply({CmdType::PinBox, 0}); // 光标有效后第一次按下才真正挂起
+    CHECK(fx.pinbox_pending());
+}
+
 TEST(toggles_flip_flags)
 {
     EffectsState fx;

@@ -23,6 +23,10 @@ void EffectsState::on_cursor(Vec2 px)
 
 void EffectsState::on_click(int button)
 {
+    // 从未见过有效光标位置时 cursor_px_ 是默认构造的 {0,0},不是真实点击点,
+    // 不该在左上角冒出波纹。
+    if (!cursor_valid)
+        return;
     if (cfg.ripples_enabled)
         ripples_.push_back({cursor_px_, 0, button});
 }
@@ -60,17 +64,23 @@ void EffectsState::apply(const Command &c)
         spotlight_on = !spotlight_on;
         break;
     case CmdType::PinAdd:
-        pins_.push_back({Pin::Badge, next_badge_++, cursor_px_, {}});
+        // 光标从未有效过时 cursor_px_ 是默认 {0,0},忽略这次标注请求。
+        if (cursor_valid)
+            pins_.push_back({Pin::Badge, next_badge_++, cursor_px_, {}});
         break;
     case CmdType::PinBox:
         if (!box_pending_) {
-            box_pending_ = true;
-            box_corner_ = cursor_px_;
-            box_age_ = 0;
-        } else {
+            // 首次按下需要一个真实的角点;光标无效就忽略,保持未挂起。
+            if (cursor_valid) {
+                box_pending_ = true;
+                box_corner_ = cursor_px_;
+                box_age_ = 0;
+            }
+        } else if (cursor_valid) {
             pins_.push_back({Pin::Box, 0, {}, rect_from_corners(box_corner_, cursor_px_)});
             box_pending_ = false;
         }
+        // else: 已挂起但当前光标无效——保持 pending,等光标恢复后再按第二次。
         break;
     case CmdType::PinUndo:
         if (box_pending_) {
@@ -100,16 +110,26 @@ void EffectsState::tick(double dt, double src_w, double src_h)
     smooth_cursor_.x = approach(smooth_cursor_.x, cursor_px_.x, cfg.cursor_smooth_speed, dt);
     smooth_cursor_.y = approach(smooth_cursor_.y, cursor_px_.y, cfg.cursor_smooth_speed, dt);
 
-    // 死区跟随:光标把死区边缘往外"推"
     double vw = src_w / zoom_current_, vh = src_h / zoom_current_;
-    double dzx = vw * cfg.dead_zone_frac / 2.0, dzy = vh * cfg.dead_zone_frac / 2.0;
-    Vec2 desired = view_center_;
-    if (cursor_px_.x < view_center_.x - dzx) desired.x = cursor_px_.x + dzx;
-    if (cursor_px_.x > view_center_.x + dzx) desired.x = cursor_px_.x - dzx;
-    if (cursor_px_.y < view_center_.y - dzy) desired.y = cursor_px_.y + dzy;
-    if (cursor_px_.y > view_center_.y + dzy) desired.y = cursor_px_.y - dzy;
-    view_center_.x = approach(view_center_.x, desired.x, cfg.follow_speed, dt);
-    view_center_.y = approach(view_center_.y, desired.y, cfg.follow_speed, dt);
+    if (!view_center_init_) {
+        // 从未收到过真实光标位置(on_cursor 从未被调用):按 spec 缩放应居中,
+        // 而不是停在默认构造的 {0,0}(左上角)。跳过下面的死区跟随,否则会
+        // 用无效的 cursor_px_({0,0})把镜头拽向左上角。注意这里不设置
+        // view_center_init_,所以 on_cursor() 收到第一个真实坐标时,它自己
+        // 的初始化逻辑仍会接管并覆盖这里的居中值。
+        view_center_ = {src_w / 2.0, src_h / 2.0};
+        smooth_cursor_ = view_center_;
+    } else {
+        // 死区跟随:光标把死区边缘往外"推"
+        double dzx = vw * cfg.dead_zone_frac / 2.0, dzy = vh * cfg.dead_zone_frac / 2.0;
+        Vec2 desired = view_center_;
+        if (cursor_px_.x < view_center_.x - dzx) desired.x = cursor_px_.x + dzx;
+        if (cursor_px_.x > view_center_.x + dzx) desired.x = cursor_px_.x - dzx;
+        if (cursor_px_.y < view_center_.y - dzy) desired.y = cursor_px_.y + dzy;
+        if (cursor_px_.y > view_center_.y + dzy) desired.y = cursor_px_.y - dzy;
+        view_center_.x = approach(view_center_.x, desired.x, cfg.follow_speed, dt);
+        view_center_.y = approach(view_center_.y, desired.y, cfg.follow_speed, dt);
+    }
     view_center_.x = std::clamp(view_center_.x, vw / 2.0, src_w - vw / 2.0);
     view_center_.y = std::clamp(view_center_.y, vh / 2.0, src_h - vh / 2.0);
 

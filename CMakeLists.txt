@@ -9,7 +9,7 @@ add_compile_options(-Wall -Wextra)
 find_package(libobs QUIET)                # /usr/lib/cmake/libobs 本机已确认存在
 find_package(PkgConfig REQUIRED)
 if(NOT TARGET OBS::libobs)
-    # 部分发行版(如 Ubuntu 的 libobs-dev)不装 CMake config,回退到 pkg-config
+    # 某些发行版不带 libobs CMake config,回退到 pkg-config(本机与 Ubuntu CI 均走 find_package 分支)
     pkg_check_modules(OBSPC REQUIRED IMPORTED_TARGET GLOBAL libobs)
     add_library(OBS::libobs ALIAS PkgConfig::OBSPC)
 endif()

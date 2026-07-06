@@ -32,6 +32,19 @@ struct FilterCtx {
     std::vector<std::unique_ptr<HotkeyBinding>> hotkeys;
     std::string monitor_name;
     std::string socket_path;
+
+    // filter_update() 跑在 UI 线程,而 filter_tick()/filter_render()(即 OBS 的
+    // video_tick/video_render)跑在视频/图形线程,会并发读取 fx.cfg(含
+    // std::vector)、monitor_name(std::string)等字段——UI 线程直接重新赋值这些
+    // 字段,若恰好撞上并发读取中的 reallocation,可段错误。这里用"暂存区"模式:
+    // filter_update 只把新值写进 staged_*(加锁),真正落地推迟到 filter_tick
+    // 开头去做,确保所有对 ctx 状态的写入都发生在同一线程(视频线程)上。
+    std::mutex staged_mu;
+    EffectsConfig staged_cfg;
+    std::string staged_monitor;
+    bool staged_highlight = true, staged_trail = false, staged_spotlight = false;
+    std::string staged_socket;
+    bool staged_dirty = false;
 };
 
 struct HotkeyBinding {
@@ -74,8 +87,11 @@ static const char *filter_name(void *)
 static void filter_update(void *data, obs_data_t *s)
 {
     auto *ctx = (FilterCtx *)data;
-    auto &cfg = ctx->fx.cfg;
-    ctx->monitor_name = obs_data_get_string(s, "monitor");
+
+    // 先在局部变量里把新配置/新值组好,不碰 ctx 的任何"实读字段"
+    // (fx.cfg / monitor_name / socket_path 等),避免 UI 线程直接写入正被
+    // video_tick/video_render 并发读取的对象。
+    EffectsConfig cfg;
     cfg.zoom_presets = parse_presets(obs_data_get_string(s, "zoom_presets"));
     cfg.follow_speed = obs_data_get_double(s, "follow_speed");
     cfg.dead_zone_frac = obs_data_get_double(s, "dead_zone_frac");
@@ -92,27 +108,31 @@ static void filter_update(void *data, obs_data_t *s)
     cfg.badge_color = (uint32_t)obs_data_get_int(s, "badge_color");
     cfg.box_color = (uint32_t)obs_data_get_int(s, "box_color");
     cfg.badge_radius = obs_data_get_double(s, "badge_radius");
-    // 面板勾选是初始状态;socket/热键命令在运行时翻转,再动面板会重置
-    ctx->fx.highlight_on = obs_data_get_bool(s, "highlight_on");
-    ctx->fx.trail_on = obs_data_get_bool(s, "trail_on");
-    ctx->fx.spotlight_on = obs_data_get_bool(s, "spotlight_on");
 
+    std::string monitor = obs_data_get_string(s, "monitor");
+    // 面板勾选是初始状态;socket/热键命令在运行时翻转,再动面板会重置
+    bool highlight_on = obs_data_get_bool(s, "highlight_on");
+    bool trail_on = obs_data_get_bool(s, "trail_on");
+    bool spotlight_on = obs_data_get_bool(s, "spotlight_on");
     std::string sock = obs_data_get_string(s, "socket_path");
-    if (!ctx->server || sock != ctx->socket_path) {
-        ctx->socket_path = sock;
-        // 必须先 reset() 销毁旧 server(析构会停止旧监听线程并 unlink 旧 socket
-        // 文件),再构造新 server。若直接赋值 ctx->server = make_unique<...>(...),
-        // make_unique 会先构造新对象再赋值——此时旧 server 仍存活、仍绑在同一
-        // path 上,新构造函数里的 has_live_listener() 探测会连上"旧我",误判
-        // 该路径"已被占用"而放弃绑定,导致新 server 退化失效。
-        ctx->server.reset();
-        ctx->server = std::make_unique<ControlServer>(ctx->shared, sock);
-    }
+
+    // 落地到暂存区,交给 filter_tick 在视频线程上统一应用(含 server 重建)。
+    std::lock_guard<std::mutex> lk(ctx->staged_mu);
+    ctx->staged_cfg = std::move(cfg);
+    ctx->staged_monitor = std::move(monitor);
+    ctx->staged_highlight = highlight_on;
+    ctx->staged_trail = trail_on;
+    ctx->staged_spotlight = spotlight_on;
+    ctx->staged_socket = std::move(sock);
+    ctx->staged_dirty = true;
 }
 
 static void *filter_create(obs_data_t *settings, obs_source_t *source)
 {
-    log_sink() = [](const std::string &m) { blog(LOG_INFO, "[obs-record] %s", m.c_str()); };
+    // log_sink() 的绑定已挪到 obs_module_load()(见 plugin-main.cpp):它只应
+    // 绑定一次,若每次 filter_create 都重新赋值,当已有滤镜实例的线程正在调用
+    // log()(读取 std::function)时,这里对同一个 std::function 重新赋值属于
+    // UB,第二个滤镜实例创建时就可能与第一个实例的日志线程发生数据竞争。
     auto *ctx = new FilterCtx;
     ctx->source = source;
     ctx->tracker = std::make_unique<CursorTracker>(ctx->shared);
@@ -135,6 +155,34 @@ static void filter_destroy(void *data)
 static void filter_tick(void *data, float seconds)
 {
     auto *ctx = (FilterCtx *)data;
+
+    // 把 filter_update() 暂存的新配置在视频线程上落地(见 FilterCtx::staged_*
+    // 注释)。server 的重建也挪到这里一并做,让所有对 ctx 的写入都发生在同一
+    // 线程上——这意味着 filter_create 刚返回时 server 还未创建,要等到第一次
+    // filter_tick 才会创建,晚了一帧但可接受。
+    {
+        std::lock_guard<std::mutex> lk(ctx->staged_mu);
+        if (ctx->staged_dirty) {
+            ctx->fx.cfg = std::move(ctx->staged_cfg);
+            ctx->monitor_name = std::move(ctx->staged_monitor);
+            ctx->fx.highlight_on = ctx->staged_highlight;
+            ctx->fx.trail_on = ctx->staged_trail;
+            ctx->fx.spotlight_on = ctx->staged_spotlight;
+            if (!ctx->server || ctx->staged_socket != ctx->socket_path) {
+                ctx->socket_path = ctx->staged_socket;
+                // 必须先 reset() 销毁旧 server(析构会停止旧监听线程并 unlink 旧
+                // socket 文件),再构造新 server。若直接赋值
+                // ctx->server = make_unique<...>(...),make_unique 会先构造新
+                // 对象再赋值——此时旧 server 仍存活、仍绑在同一 path 上,新构造
+                // 函数里的 has_live_listener() 探测会连上"旧我",误判该路径
+                // "已被占用"而放弃绑定,导致新 server 退化失效。
+                ctx->server.reset();
+                ctx->server = std::make_unique<ControlServer>(ctx->shared, ctx->socket_path);
+            }
+            ctx->staged_dirty = false;
+        }
+    }
+
     obs_source_t *target = obs_filter_get_target(ctx->source);
     double w = target ? obs_source_get_base_width(target) : 0;
     double h = target ? obs_source_get_base_height(target) : 0;

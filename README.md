@@ -55,6 +55,8 @@ bind = SUPER, A, exec, obs-record-cli pin add
 bind = SUPER, S, exec, obs-record-cli spotlight toggle
 ```
 
+> 注意:同一时间只需给一个采集源挂一个滤镜实例;第二个实例的 socket 控制会自动让位(探测到已有监听则降级)。
+
 ## 系统要求
 
 - Hyprland(依赖其 IPC,其他合成器暂不支持)
