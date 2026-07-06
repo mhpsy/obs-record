@@ -38,3 +38,4 @@ function(rec_add_test name)
 endfunction()
 
 rec_add_test(test-sanity)
+rec_add_test(test-geometry)
