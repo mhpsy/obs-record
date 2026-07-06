@@ -14,7 +14,7 @@ find_package(Threads REQUIRED)
 
 # 纯逻辑核心:零 OBS 依赖,插件和测试共用
 add_library(rec-core STATIC
-    # 后续任务往这里追加: src/hypr-ipc.cpp
+    src/hypr-ipc.cpp
     src/effects-state.cpp
     src/commands.cpp)
 target_include_directories(rec-core PUBLIC src)
@@ -43,3 +43,5 @@ rec_add_test(test-geometry)
 rec_add_test(test-commands)
 rec_add_test(test-zoom)
 rec_add_test(test-effects)
+rec_add_test(test-hypr-parse)
+rec_add_test(test-sockets)
