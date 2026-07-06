@@ -11,12 +11,38 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+namespace {
+
+// 探测 path 上是否有存活实例在监听:能 connect 上就说明有主,不能因为
+// 文件存在就认定是异常残留(stale),否则会把活实例的 socket 文件删掉。
+bool has_live_listener(const std::string &path)
+{
+    if (path.empty() || path.size() >= sizeof(sockaddr_un::sun_path))
+        return false;
+    int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0)
+        return false;
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+    bool live = ::connect(fd, (sockaddr *)&addr, sizeof(addr)) == 0;
+    ::close(fd);
+    return live;
+}
+
+} // namespace
+
 namespace rec {
 
 ControlServer::ControlServer(SharedInputs &shared, std::string sock_path)
     : shared_(shared), path_(std::move(sock_path))
 {
-    ::unlink(path_.c_str()); // 清理上次异常退出的残留
+    if (has_live_listener(path_)) {
+        log("control-server: socket 已被占用: " + path_);
+        fd_ = -1;
+        return;
+    }
+    ::unlink(path_.c_str()); // 清理上次异常退出的残留(stale 文件,无人监听)
     fd_ = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (fd_ < 0) {
         log("control-server: socket() 失败,快捷键控制不可用");
@@ -37,6 +63,7 @@ ControlServer::ControlServer(SharedInputs &shared, std::string sock_path)
         fd_ = -1;
         return;
     }
+    bound_ = true;
     log("control-server: 监听 " + path_);
     th_ = std::thread([this] { loop(); });
 }
@@ -50,7 +77,7 @@ ControlServer::~ControlServer()
     }
     if (th_.joinable())
         th_.join();
-    if (!path_.empty())
+    if (bound_ && !path_.empty())
         ::unlink(path_.c_str());
 }
 
@@ -64,6 +91,9 @@ void ControlServer::loop()
         int c = ::accept(fd_, nullptr, nullptr);
         if (c < 0)
             continue;
+        // 空闲/慢客户端不能让线程永久卡在 read() 里,析构 join() 才能有界
+        timeval tv{0, 500 * 1000}; // 500ms
+        ::setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         std::string data;
         char buf[512];
         ssize_t n;

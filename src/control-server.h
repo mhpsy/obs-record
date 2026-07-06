@@ -18,6 +18,7 @@ private:
     SharedInputs &shared_;
     std::string path_;
     int fd_ = -1;
+    bool bound_ = false; // 仅当本实例成功 bind/listen 时才在析构里 unlink
     std::atomic<bool> running_{true};
     std::thread th_;
 };

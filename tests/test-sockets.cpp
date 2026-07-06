@@ -168,8 +168,48 @@ TEST(control_server_receives_command_lines)
 
 TEST(control_server_cleans_stale_socket)
 {
+    // 手动制造真正的"异常退出残留":bind 一个裸 socket 后不 unlink 就 close,
+    // 文件留在磁盘上但没有任何进程在监听,正是崩溃残留的样子。
+    ::unlink("stale-test.sock");
+    int raw = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", "stale-test.sock");
+    CHECK(::bind(raw, (sockaddr *)&addr, sizeof(addr)) == 0);
+    ::close(raw); // 故意不 unlink
+
     SharedInputs shared;
-    { ControlServer first(shared, "stale-test.sock"); CHECK(first.ok()); }
-    // 模拟异常残留:手动占一个同名 stale 文件
-    { ControlServer second(shared, "stale-test.sock"); CHECK(second.ok()); }
+    ControlServer srv(shared, "stale-test.sock");
+    CHECK(srv.ok()); // 应当探测出 stale 并重新 bind 成功
+
+    send_line("stale-test.sock", "zoom toggle\n");
+    bool ok = false;
+    for (int i = 0; i < 100 && !ok; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        auto s = shared.drain();
+        ok = !s.command_lines.empty() && s.command_lines[0] == "zoom toggle";
+    }
+    CHECK(ok);
+}
+
+TEST(control_server_live_socket_not_stolen)
+{
+    SharedInputs shared;
+    ControlServer a(shared, "live-test.sock");
+    CHECK(a.ok());
+
+    {
+        // B 撞见 A 正在监听的同一路径:必须拒绝而不是抢走/删掉 A 的 socket
+        ControlServer b(shared, "live-test.sock");
+        CHECK(!b.ok());
+    } // B 析构:不能 unlink 掉 A 的 socket 文件
+
+    send_line("live-test.sock", "pin add\n");
+    bool ok = false;
+    for (int i = 0; i < 100 && !ok; i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        auto s = shared.drain();
+        ok = !s.command_lines.empty() && s.command_lines[0] == "pin add";
+    }
+    CHECK(ok); // 证明 A 仍在正常工作,B 没有偷走/删掉 A 的 socket
 }
