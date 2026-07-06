@@ -6,6 +6,7 @@
 #include "effects-state.h"
 #include "input-listener.h"
 #include "log.h"
+#include "renderer.h"
 #include "shared-state.h"
 
 #include <cstdlib>
@@ -24,6 +25,7 @@ struct FilterCtx {
     obs_source_t *source = nullptr;
     SharedInputs shared;
     EffectsState fx;
+    RenderCtx render;
     std::unique_ptr<CursorTracker> tracker;
     std::unique_ptr<ControlServer> server;
     std::unique_ptr<InputListener> input;
@@ -122,7 +124,12 @@ static void *filter_create(obs_data_t *settings, obs_source_t *source)
 
 static void filter_destroy(void *data)
 {
-    delete (FilterCtx *)data; // 线程全部 RAII 停止
+    auto *ctx = (FilterCtx *)data;
+    release_badges(ctx->render);
+    obs_enter_graphics();
+    render_free(ctx->render);
+    obs_leave_graphics();
+    delete ctx; // 线程全部 RAII 停止
 }
 
 static void filter_tick(void *data, float seconds)
@@ -167,7 +174,7 @@ static void filter_tick(void *data, float seconds)
 static void filter_render(void *data, gs_effect_t *)
 {
     auto *ctx = (FilterCtx *)data;
-    obs_source_skip_video_filter(ctx->source); // Task 11 替换为真实渲染
+    render_frame(ctx->render, ctx->source, ctx->fx);
 }
 
 static void filter_defaults(obs_data_t *s)
@@ -238,7 +245,11 @@ void register_record_filter()
     static obs_source_info info = {};
     info.id = "obs_record_filter";
     info.type = OBS_SOURCE_TYPE_FILTER;
-    info.output_flags = OBS_SOURCE_VIDEO;
+    // 需要 CUSTOM_DRAW:渲染器自己管理 gs_effect_loop(Default/Solid 多次),
+    // 若不设置该 flag,OBS 会预先激活一个 Default 特效并已开始技术流程,
+    // 我们再次 gs_effect_loop 会与其冲突,导致 "invalid param"/"No vertex
+    // shader specified" 之类的 GL 错误,画面变黑。
+    info.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_CUSTOM_DRAW;
     info.get_name = filter_name;
     info.create = filter_create;
     info.destroy = filter_destroy;

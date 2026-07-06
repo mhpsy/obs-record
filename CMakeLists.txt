@@ -30,6 +30,7 @@ set_target_properties(rec-core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(obs-record MODULE
     src/plugin-main.cpp
     src/filter.cpp
+    src/renderer.cpp
     src/input-listener.cpp)
 set_target_properties(obs-record PROPERTIES PREFIX "")
 target_link_libraries(obs-record PRIVATE OBS::libobs rec-core PkgConfig::INPUT)
