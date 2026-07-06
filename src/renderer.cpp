@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace rec {
 
@@ -61,7 +62,6 @@ static void draw_rect_fill(Rect r, uint32_t rgba)
     }
 }
 
-[[maybe_unused]] // Task 12 使用
 static void draw_rect_outline(Rect r, double t, uint32_t rgba)
 {
     draw_rect_fill({r.x - t, r.y - t, r.w + 2 * t, t}, rgba);
@@ -70,7 +70,6 @@ static void draw_rect_outline(Rect r, double t, uint32_t rgba)
     draw_rect_fill({r.x + r.w, r.y, t, r.h}, rgba);
 }
 
-[[maybe_unused]] // Task 12 使用
 static void draw_dashed_rect_outline(Rect r, double t, double dash, uint32_t rgba)
 {
     for (double s = 0; s < r.w; s += dash * 2) {
@@ -83,6 +82,96 @@ static void draw_dashed_rect_outline(Rect r, double t, double dash, uint32_t rgb
         draw_rect_fill({r.x - t / 2, r.y + s, t, len}, rgba);
         draw_rect_fill({r.x + r.w - t / 2, r.y + s, t, len}, rgba);
     }
+}
+
+static gs_effect_t *spot_effect(RenderCtx &rc)
+{
+    if (!rc.spot_effect && !rc.spot_effect_tried) {
+        rc.spot_effect_tried = true;
+        char *path = obs_module_file("spotlight.effect");
+        if (path) {
+            rc.spot_effect = gs_effect_create_from_file(path, nullptr);
+            bfree(path);
+        }
+        if (!rc.spot_effect)
+            log("renderer: spotlight.effect 加载失败,聚光灯降级为无羽化环形");
+    }
+    return rc.spot_effect;
+}
+
+static void draw_spotlight(RenderCtx &rc, EffectsState &fx, uint32_t w, uint32_t h)
+{
+    const auto &cfg = fx.cfg;
+    Vec2 c = fx.smooth_cursor();
+    gs_effect_t *e = spot_effect(rc);
+    if (e) {
+        struct vec2 v;
+        vec2_set(&v, (float)c.x, (float)c.y);
+        gs_effect_set_vec2(gs_effect_get_param_by_name(e, "center"), &v);
+        gs_effect_set_float(gs_effect_get_param_by_name(e, "radius"), (float)cfg.spotlight_radius);
+        gs_effect_set_float(gs_effect_get_param_by_name(e, "feather"), (float)cfg.spotlight_feather);
+        gs_effect_set_float(gs_effect_get_param_by_name(e, "dim_alpha"), (float)cfg.spotlight_dim);
+        vec2_set(&v, (float)w, (float)h);
+        gs_effect_set_vec2(gs_effect_get_param_by_name(e, "size"), &v);
+        while (gs_effect_loop(e, "Draw"))
+            gs_draw_sprite(nullptr, 0, w, h);
+    } else {
+        // 降级:四块矩形压暗圆外区域(无羽化,但功能可用)
+        uint32_t dim = with_alpha_scale(0xFF000000, cfg.spotlight_dim);
+        double r = cfg.spotlight_radius;
+        draw_rect_fill({0, 0, (double)w, c.y - r}, dim);
+        draw_rect_fill({0, c.y + r, (double)w, h - c.y - r}, dim);
+        draw_rect_fill({0, c.y - r, c.x - r, 2 * r}, dim);
+        draw_rect_fill({c.x + r, c.y - r, w - c.x - r, 2 * r}, dim);
+        draw_ring(c, r, r + 2, dim);
+    }
+}
+
+static obs_source_t *badge_text(RenderCtx &rc, int number)
+{
+    auto it = rc.badges.find(number);
+    if (it != rc.badges.end())
+        return it->second;
+    obs_data_t *st = obs_data_create();
+    obs_data_t *font = obs_data_create();
+    obs_data_set_string(font, "face", "Sans Serif");
+    obs_data_set_int(font, "size", 28);
+    obs_data_set_obj(st, "font", font);
+    obs_data_set_string(st, "text", std::to_string(number).c_str());
+    obs_data_set_int(st, "color1", 0xFFFFFFFF);
+    obs_data_set_int(st, "color2", 0xFFFFFFFF);
+    obs_source_t *src = obs_source_create_private("text_ft2_source_v2", nullptr, st);
+    obs_data_release(font);
+    obs_data_release(st);
+    if (!src)
+        log("renderer: text_ft2_source_v2 创建失败,徽章无数字");
+    rc.badges[number] = src; // null 也缓存,避免每帧重试
+    return src;
+}
+
+static void draw_pins(RenderCtx &rc, EffectsState &fx)
+{
+    const auto &cfg = fx.cfg;
+    for (const auto &p : fx.pins()) {
+        if (p.kind == Pin::Box) {
+            draw_rect_fill(p.rect, cfg.box_color);
+            draw_rect_outline(p.rect, 3.0, with_alpha_scale(cfg.box_color, 2.5));
+        } else {
+            draw_circle_fill(p.pos, cfg.badge_radius, cfg.badge_color);
+            draw_ring(p.pos, cfg.badge_radius - 2.0, cfg.badge_radius, 0xFFFFFFFF);
+            obs_source_t *txt = badge_text(rc, p.number);
+            if (txt) {
+                double tw = obs_source_get_width(txt), th = obs_source_get_height(txt);
+                gs_matrix_push();
+                gs_matrix_translate3f((float)(p.pos.x - tw / 2.0),
+                                      (float)(p.pos.y - th / 2.0), 0.0f);
+                obs_source_video_render(txt);
+                gs_matrix_pop();
+            }
+        }
+    }
+    if (fx.pinbox_pending())
+        draw_dashed_rect_outline(fx.pinbox_preview(), 2.0, 12.0, 0xCCFFFFFF);
 }
 
 // Task 12 在此函数补聚光灯与标注
@@ -106,9 +195,9 @@ static void draw_effects(RenderCtx &rc, EffectsState &fx, uint32_t w, uint32_t h
         draw_ring(fx.cursor(), cfg.highlight_radius - 2.0, cfg.highlight_radius,
                   with_alpha_scale(cfg.highlight_color, 2.0));
     }
-    (void)rc;
-    (void)w;
-    (void)h;
+    if (fx.spotlight_on && fx.cursor_valid)
+        draw_spotlight(rc, fx, w, h);
+    draw_pins(rc, fx); // 标注画在压暗层之上
 }
 
 void render_frame(RenderCtx &rc, obs_source_t *source, EffectsState &fx)
