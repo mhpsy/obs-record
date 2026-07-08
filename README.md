@@ -29,7 +29,11 @@ cp scripts/obs-record-cli ~/.local/bin/ && chmod +x ~/.local/bin/obs-record-cli
 ```
 
 重启 OBS,在屏幕采集源的滤镜里添加 **"Hyprland 录制增强"**,
-然后把 `scripts/hyprland-binds.conf` 的键位抄进你的 hyprland.conf。
+然后把 `scripts/hyprland-binds.conf` 的键位 source 进(或抄进)你的 hyprland.conf。
+
+> ⚠️ 快捷键靠 Hyprland 绑定触发——Wayland 下 OBS 自带的全局热键(设置里那套 Hotkeys)
+> 被合成器先吃掉,根本收不到。所以务必先做上面第 5 步把 `obs-record-cli` 装进 PATH,
+> 否则每个绑定都会静默失败(command not found)。
 
 ## 命令一览
 
@@ -49,11 +53,21 @@ cp scripts/obs-record-cli ~/.local/bin/ && chmod +x ~/.local/bin/obs-record-cli
 - 点击事件:libinput 监听 `/dev/input`
 - 快捷键:插件监听 Unix socket,直接用 Hyprland 的 `bind = ..., exec` 发命令,不受 Wayland 全局快捷键限制
 
+示例用 **leader 子模式**:`SUPER+O` 进入 obs-record 模式,再按单键触发,`Esc`/`Enter` 退出。
+所有键收进子模式,不占用任何全局键——避免 `SUPER+Z/C/T/H` 这类热门单键和你现有绑定撞车。
+
 ```
-bind = SUPER, Z, exec, obs-record-cli zoom toggle
-bind = SUPER, A, exec, obs-record-cli pin add
-bind = SUPER, S, exec, obs-record-cli spotlight toggle
+bind = SUPER, O, submap, obs-record
+submap = obs-record
+bind = , Z, exec, obs-record-cli zoom toggle    # 缩放开关
+bind = , A, exec, obs-record-cli pin add        # 钉编号
+bind = , S, exec, obs-record-cli spotlight toggle
+bind = , escape, submap, reset
+bind = , return, submap, reset
+submap = reset
 ```
+
+完整 9 个命令见 `scripts/hyprland-binds.conf`;若 `SUPER+O` 已被占用,改开头那行的 leader 键即可。
 
 > 注意:同一时间只需给一个采集源挂一个滤镜实例;第二个实例的 socket 控制会自动让位(探测到已有监听则降级)。
 
